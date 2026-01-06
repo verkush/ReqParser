@@ -1,0 +1,290 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Requirement Extractor Dashboard</title>
+
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;600&display=swap" rel="stylesheet">
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+
+<style>
+:root{
+  --bg:#0f172a;
+  --card:#020617;
+  --border:#1e293b;
+  --text:#f1f5f9;
+  --muted:#94a3b8;
+  --btn:#2563eb;
+}
+.light{
+  --bg:#f1f5f9;
+  --card:#ffffff;
+  --border:#cbd5e1;
+  --text:#0f172a;
+  --muted:#475569;
+  --btn:#2563eb;
+}
+
+body{
+  font-family:Inter;
+  background:var(--bg);
+  color:var(--text);
+  margin:0;
+}
+
+.container{
+  max-width:1300px;
+  margin:20px auto;
+  padding:10px 20px;
+}
+
+.card{
+  background:var(--card);
+  border:1px solid var(--border);
+  border-radius:18px;
+  padding:20px;
+  margin-top:20px;
+  box-shadow:0 25px 40px rgba(0,0,0,.25);
+}
+
+h1,h2{
+  margin:0 0 8px 0;
+}
+
+button{
+  background:var(--btn);
+  border:none;
+  padding:10px 16px;
+  border-radius:10px;
+  color:white;
+  cursor:pointer;
+  font-weight:600;
+}
+
+button.secondary{
+  background:#475569;
+}
+
+button:hover{
+  opacity:.9;
+}
+
+.badge{
+  display:inline-block;
+  background:#0ea5e9;
+  padding:6px 10px;
+  border-radius:10px;
+  font-size:12px;
+}
+
+.grid{
+  display:grid;
+  grid-template-columns:1fr 1fr;
+  gap:20px;
+}
+
+table{
+  width:100%;
+  border-collapse:collapse;
+  margin-top:10px;
+}
+
+th,td{
+  padding:12px;
+  border-bottom:1px solid var(--border);
+}
+
+th{
+  position:sticky;
+  top:0;
+  background:var(--card);
+}
+
+tr:hover td{
+  background:rgba(148,163,184,.1);
+}
+
+canvas{
+  background:var(--card);
+  border-radius:16px;
+  padding:10px;
+}
+
+.header{
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
+}
+
+.toggle{
+  cursor:pointer;
+  font-size:14px;
+  color:var(--muted);
+}
+
+.collapsible-content{
+  display:block;
+}
+
+.toast{
+  position:fixed;
+  right:20px;
+  bottom:20px;
+  padding:12px 16px;
+  border-radius:10px;
+  background:#22c55e;
+  color:white;
+  font-weight:600;
+  opacity:0;
+  transform:translateY(20px);
+  transition:.3s;
+}
+
+.toast.show{
+  opacity:1;
+  transform:translateY(0);
+}
+
+.search-box{
+  margin:8px 0;
+}
+</style>
+</head>
+
+<body>
+
+<div class="container">
+
+  <div class="header">
+    <h1>Requirement Extractor Dashboard</h1>
+    <div class="toggle" onclick="toggleTheme()">🌙 Toggle Theme</div>
+  </div>
+
+  <span class="badge">Local & Secure</span>
+
+  <!-- Upload -->
+  <div class="card">
+    <h2 onclick="toggleCard(this)">Upload PDF ⤵</h2>
+
+    <div class="collapsible-content">
+      <form method="POST" enctype="multipart/form-data">
+        <input type="file" name="pdf" required>
+        <button type="submit">Extract</button>
+      </form>
+    </div>
+  </div>
+
+  <!-- Requirements Table -->
+  <div class="card">
+    <h2>Requirements by Cadence</h2>
+
+    <input class="search-box" placeholder="Search requirement…" onkeyup="search(this.value)">
+
+    <table id="reqTable">
+      <tr>
+        <th>Requirement ID</th>
+        {% for c in cadence_requirements.keys() %}
+        <th class="cad-head" onclick="filterCadence('{{c}}')">{{ c }}</th>
+        {% endfor %}
+      </tr>
+
+      {% for i in range(max_len) %}
+      <tr>
+        <td>{{ req_family }}-{{ "%03d"|format(i+1) }}</td>
+        {% for c in cadence_requirements.keys() %}
+        <td contenteditable="true">
+          {% if i < cadence_requirements[c]|length %}
+            {{ cadence_requirements[c][i] }}
+          {% endif %}
+        </td>
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </table>
+
+    <br>
+    <button onclick="save()">💾 Save</button>
+    <a href="/export"><button class="secondary">⬇ Export Excel</button></a>
+  </div>
+
+  <!-- Charts -->
+  <div class="grid">
+    <div class="card">
+      <h2>Bar Chart</h2>
+      <canvas id="barChart"></canvas>
+    </div>
+    <div class="card">
+      <h2>Pie Chart</h2>
+      <canvas id="pieChart"></canvas>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast">Saved ✔</div>
+
+<script>
+let dark=true;
+
+function toggleTheme(){
+  document.body.classList.toggle("light");
+  dark=!dark;
+}
+
+function toggleCard(h){
+  let c=h.nextElementSibling;
+  c.style.display = c.style.display==="none" ? "block" : "none";
+}
+
+function showToast(){
+  let t=document.getElementById("toast");
+  t.classList.add("show");
+  setTimeout(()=>t.classList.remove("show"),2000);
+}
+
+function save(){
+  let table=document.querySelectorAll("#reqTable tr");
+  let data={};
+  let headers=[...table[0].children].slice(1).map(c=>c.innerText.trim());
+  headers.forEach(h=>data[h]=[]);
+  for(let r=1;r<table.length;r++){
+    let cells=table[r].children;
+    for(let c=1;c<cells.length;c++){
+      data[headers[c-1]].push(cells[c].innerText.trim());
+    }
+  }
+  fetch("/update",{method:"POST",headers:{'Content-Type':'application/json'},body:JSON.stringify(data)})
+  .then(()=>showToast());
+}
+
+let activeFilter=null;
+function filterCadence(c){
+  activeFilter = activeFilter===c ? null : c;
+  let idx=[...document.querySelectorAll(".cad-head")].findIndex(h=>h.innerText===c)+2;
+  document.querySelectorAll("#reqTable tr").forEach(r=>{
+    [...r.children].forEach((cell,i)=>{
+      if(i===0) return;
+      cell.style.opacity = (!activeFilter || i+1===idx) ? 1 : .2;
+    });
+  });
+}
+
+function search(q){
+  q=q.toLowerCase();
+  document.querySelectorAll("#reqTable td").forEach(td=>{
+    if(td.contentEditable==="true"){
+      td.style.background = td.innerText.toLowerCase().includes(q) && q ? "rgba(56,189,248,.3)" : "";
+    }
+  });
+}
+
+fetch("/chart-data").then(r=>r.json()).then(data=>{
+    new Chart(barChart,{type:"bar",data:{labels:data.labels,datasets:[{label:"Requirement Count",data:data.counts}]}});
+    new Chart(pieChart,{type:"pie",data:{labels:data.labels,datasets:[{data:data.counts}]}});
+});
+</script>
+
+</body>
+</html>
